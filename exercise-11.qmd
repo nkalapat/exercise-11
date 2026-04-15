@@ -1,0 +1,106 @@
+---
+title: "exercise-11"
+format: html
+---
+library(tidyverse)
+library(skimr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(MuMIn)
+
+f <- "https://raw.githubusercontent.com/difiore/ada-datasets/main/Mammal_lifehistories_v2.txt"
+d <- read_tsv(f, col_names = TRUE)
+
+skim_without_charts(d)
+names(d)
+
+#Replace all values of -999 (the authors’ code for missing data) with NA.
+d[d == -999] <- NA
+d
+
+#Drop the variables litter size and refs. Rename the variable max. life(mo) to maxlife(mo). Rename the variable wean mass(g) to weanmass(g).
+d <- d %>%
+  select(-`litter size`, -refs) %>%
+  rename (
+  `maxlife(mo)` = `max. life(mo)`,
+  `weanmass(g)` = `wean mass(g)`
+  )
+
+#Log transform all of the other numeric variables.
+d <- d %>%
+  mutate(across(where(is.numeric), log))
+
+#Regress the (now log transformed) age [gestation(mo), weaning(mo), AFR(mo) (i.e., age at first reproduction), and maxlife(mo) (i.e., maximum lifespan)] and mass [newborn(g) and weanmass(g)] variables on (now log transformed) overall body mass(g) and add the residuals to the dataframe as new variables [relGest, relWean, relAFR, relLife, relNewbornMass, and relWeaningMass].
+
+m1 <- lm(`gestation(mo)` ~ `mass(g)`, data = d, na.action = na.exclude)
+d$relGest <- resid(m1)
+
+m2 <- lm(`weaning(mo)` ~ `mass(g)`, data = d, na.action = na.exclude)
+d$relWean <- resid(m2)
+
+m3 <- lm(`AFR(mo)` ~ `mass(g)`, data = d, na.action = na.exclude)
+d$relAFR <- resid(m3)
+
+m4 <- lm(`maxlife(mo)` ~ `mass(g)`, data = d, na.action = na.exclude)
+d$relLife <- resid(m4)
+
+m5 <- lm(`newborn(g)` ~ `mass(g)`, data = d, na.action = na.exclude)
+d$relNewbornMass <- resid(m5)
+
+m6 <- lm(`weanmass(g)` ~ `mass(g)`, data = d, na.action = na.exclude)
+d$relWeaningMass <- resid(m6)
+
+#Plot residuals of max lifespan (relLife) in relation to Order. Which mammalian orders have the highest residual lifespan? 
+#Answer: Primates, Pholidota, and Proboscidea. 
+
+ggplot(d, aes(x = order, y = relLife)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "Relative Lifespan (residuals)", x = "Order")
+
+#Plot residuals of newborn mass (relNewbornMass) in relation to Order. Which mammalian orders have the have highest residual newborn mass? 
+#Answer: Artiodactyla, Cetacea, Hyracoidea, Macroscelidea, Primates, and Sirenia. 
+
+ggplot(d, aes(x = order, y = relNewbornMass)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "Newborn Mass (residuals)", x = "Order")
+
+#Plot residuals of weaning mass (relWeaningMass) in relation to Order. Which mammalian orders have the have highest residual weaning mass?
+#Answer: Artiodactyla, Cetacea, Insectivora, Macroscelidea, Perissodactyla, and Scandentia. 
+
+ggplot(d, aes(x = order, y = relWeaningMass)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "Weaning Mass (residuals)", x = "Order")
+  
+#Run models and a model selection process to evaluate what (now log transformed) variables best predict each of the two response variables, maxlife(mo) and AFR(mo), from the set of the following predictors: gestation(mo), newborn(g), weaning(mo), weanmass(g), litters/year, and overall body mass(g).
+d_clean <- drop_na(d)
+options(na.action = "na.fail")
+  
+m_maxlife <- lm(`maxlife(mo)` ~ `gestation(mo)` + `newborn(g)` + `weaning(mo)` + `weanmass(g)` +
+                `litters/year` + `mass(g)`, data = d_clean)
+
+m_AFR <- lm(`AFR(mo)` ~ `gestation(mo)` + `newborn(g)` + `weaning(mo)` + `weanmass(g)` +
+            `litters/year` + `mass(g)`, data = d_clean)
+
+
+#Model 24 is the best overall model based on AICc. 5 models have a delta AICc of 4 or less. The variables that appear in this top set of models are: gestation(mo), litters/year, and weaning(mo).
+t1 <- dredge(m_maxlife)
+top_models_maxlife <- subset(t1, delta <= 4)
+top_models_maxlife
+
+#Model 24 is the best overall model based on AICc. 10 models have a delta AICc of 4 or less. The variables that appear in this top set of models are: gestation(mo) and litters/year.
+t2 <- dredge(m_AFR)
+top_models_AFR <- subset(t2, delta <= 4)
+top_models_AFR
+
+#Calculate and plot the model-averaged coefficients and their CIs across this set of top models.
+avg_model_maxlife <- model.avg(top_models_maxlife)
+summary(avg_model_maxlife)
+plot(avg_model_maxlife)
+
+avg_model_AFR <- model.avg(top_models_AFR)
+summary(avg_model_AFR)
+plot(avg_model_AFR)
